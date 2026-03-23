@@ -1,5 +1,6 @@
 #include <Arduino.h>
 
+#include <CRC.h>
 #include <ADS1256.h>
 
 #include <struct.h>
@@ -65,6 +66,7 @@
 // default settings
 #define SAMPLING_SPEED 100  // in Hz
 #define TIMEOUT_DURATION 1000 // in milliseconds
+#define ADC_PACKET_PAYLOAD_LEN  (sizeof(ADC_Packet) - sizeof(uint32_t))
 
 unsigned long lastSampleTime = 0;
 unsigned long interval = 1000000 / SAMPLING_SPEED; // 1_000_000us / 100Hz = 10ms
@@ -222,14 +224,8 @@ void sendPacket() {
   A.cycleDifferential(); // we don't need the last channel but we need to call it to update the MUX for the next cycle
 
   // Calculate Checksum
-  uint8_t* ptr = (uint8_t*)&frame;
-  uint8_t chk = 0;
-
-  // XOR everything except the last byte (the checksum itself)
-  for(size_t i=0; i < sizeof(ADC_Packet) - 1; i++) {
-      chk ^= ptr[i];
-  }
-  frame.checksum = chk;
+  // CRC-32 (ISO 3309) over header + channel data (all bytes before the crc field).
+  frame.crc = calcCRC32((uint8_t *)&frame, ADC_PACKET_PAYLOAD_LEN);
 
   Serial.write((uint8_t*)&frame, sizeof(frame));  // Send the entire frame as binary data
   Serial.flush(); // Ensure all data is sent before proceeding
