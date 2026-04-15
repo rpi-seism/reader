@@ -5,6 +5,7 @@
 
 #include <struct.h>
 #include <enums.h>
+#include <GPSTimeSource.h>
 
 
 #if defined(ARDUINO_ARCH_RP2040)
@@ -63,6 +64,33 @@
   ADS1256 A(2, ADS1256::PIN_UNUSED, 8, 10, 2.500, &USE_SPI);  // Uno / Nano
 #endif
 
+#if defined(ARDUINO_ARCH_RP2040)
+  // RP2040 has two hardware UARTS. Serial1 is usually pins 0 (TX) and 1 (RX)
+  #define gpsSerial Serial1 
+
+#elif defined(ARDUINO_ARCH_STM32)
+  // On Nucleo F446RE, Serial1 is PA9 (TX) and PA10 (RX)
+  // Serial (no number) goes to the USB/ST-LINK
+  #define gpsSerial Serial1
+
+#elif defined(TEENSYDUINO)
+  // Teensy 4.0/4.1 has many hardware serials. Using Serial1 (Pins 0/1)
+  #define gpsSerial Serial1
+
+#elif defined(ARDUINO_ARCH_ESP32)
+  // ESP32 has 3 UARTs. Serial2 is standard on GPIO 16 (RX) and 17 (TX)
+  #define gpsSerial Serial2
+
+#else 
+  // AVR Fallback (Nano/Uno) - No extra Hardware Serial available
+  #include <SoftwareSerial.h>
+  SoftwareSerial softSerial(10, 11); // RX, TX
+  #define gpsSerial softSerial
+#endif
+
+#define GPS_BAUD      9600
+#define GPS_PPS_PIN   -1    // set to -1 to disable PPS (NMEA-only mode)
+
 // default settings
 #define SAMPLING_SPEED 100  // in Hz
 #define TIMEOUT_DURATION 1000 // in milliseconds
@@ -105,6 +133,9 @@ uint8_t DataRateSettings[16] = {
 };
 
 
+GPSTimeSource gps(gpsSerial, GPS_PPS_PIN);
+
+
 void initADC(SettingsPacket *s);
 void getSettings();
 void validateSettings(SettingsPacket *s);
@@ -113,6 +144,8 @@ void sendPacket();
 
 void setup() {
   Serial.begin(250000);  //The value does not matter if you use an MCU with native USB
+  
+  gps.begin(GPS_BAUD);
 
 #if defined(ARDUINO_ARCH_RP2040)  //If RP2040 is used, we need to pass the SPI pins
   SPI.setSCK(SPI_SCK);
@@ -128,6 +161,8 @@ void setup() {
 }
 
 void loop() {
+  gps.update();
+
   // Check for Heartbeat
   if (Serial.available() > 0) {
     while(Serial.available()) Serial.read(); // Clear buffer
@@ -221,12 +256,22 @@ void sendPacket() {
   frame.ch0 = A.cycleDifferential();
   frame.ch1 = A.cycleDifferential();
   frame.ch2 = A.cycleDifferential();
-  A.cycleDifferential(); // we don't need the last channel but we need to call it to update the MUX for the next cycle
 
+  GPSTimeSource::Timestamp ts = gps.now();
+  if (ts.valid) {
+      frame.unix_sec  = ts.unix_sec;
+      frame.unix_usec = ts.unix_usec;
+  } else {
+      // GPS present but no fix yet — daemon will fall back to time.time()
+      frame.unix_sec  = 0;
+      frame.unix_usec = 0;
+  }
+  
   // Calculate Checksum
   // CRC-32 (ISO 3309) over header + channel data (all bytes before the crc field).
   frame.crc = calcCRC32((uint8_t *)&frame, ADC_PACKET_PAYLOAD_LEN);
-
+  
   Serial.write((uint8_t*)&frame, sizeof(frame));  // Send the entire frame as binary data
-  Serial.flush(); // Ensure all data is sent before proceeding
+
+  A.cycleDifferential(); // we don't need the last channel but we need to call it to update the MUX for the next cycle
 }
