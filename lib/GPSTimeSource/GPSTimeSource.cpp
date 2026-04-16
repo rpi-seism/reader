@@ -11,7 +11,7 @@ GPSTimeSource* GPSTimeSource::_instance = nullptr;
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
-GPSTimeSource::GPSTimeSource(HardwareSerial& serial, int pps_pin)
+GPSTimeSource::GPSTimeSource(Stream& serial, int pps_pin)
     : _serial(serial)
     , _pps_pin(pps_pin)
     , _pps_micros(0)
@@ -29,10 +29,8 @@ GPSTimeSource::GPSTimeSource(HardwareSerial& serial, int pps_pin)
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
-void GPSTimeSource::begin(uint32_t baud)
+void GPSTimeSource::begin()
 {
-    _serial.begin(baud);
-
     if (_pps_pin >= 0) {
         pinMode(_pps_pin, INPUT);
         // Rising edge = start of new UTC second

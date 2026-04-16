@@ -59,14 +59,14 @@ public:
     // -------------------------------------------------------------------------
 
     /**
-     * @param serial   HardwareSerial connected to GPS NMEA output (TX of GPS).
+     * @param serial   Stream connected to GPS NMEA output (TX of GPS).
      * @param pps_pin  BCM/board pin wired to GPS PPS output, or -1 for NMEA-only.
      *
      * @note  pps_pin must support external interrupts on your board.
      *        On AVR Uno/Nano only pins 2 and 3 support interrupts.
      *        On RP2040, STM32, ESP32, Teensy all GPIO pins support interrupts.
      */
-    GPSTimeSource(HardwareSerial& serial, int pps_pin = -1);
+    GPSTimeSource(Stream& serial, int pps_pin = -1);
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -76,7 +76,7 @@ public:
      * Initialise GPS serial and attach PPS interrupt (if pps_pin was set).
      * Call once from setup().
      */
-    void begin(uint32_t baud = 9600);
+    void begin();
 
     /**
      * Drive the NMEA parser.  Must be called as often as possible from loop()
@@ -130,7 +130,7 @@ private:
     // -------------------------------------------------------------------------
     // Hardware
     // -------------------------------------------------------------------------
-    HardwareSerial& _serial;
+    Stream& _serial;
     int             _pps_pin;
 
     // -------------------------------------------------------------------------
