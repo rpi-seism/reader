@@ -131,8 +131,17 @@ void setup() {
 void loop() {
   // Check for Heartbeat
   if (Serial.available() > 0) {
-    while(Serial.available()) Serial.read(); // Clear buffer
-    lastHeartbeat = millis();
+    lastHeartbeat = millis(); // Any byte received counts as a heartbeat
+
+    // Look at the first byte to see if it's a command
+    if (Serial.peek() == 0xCC) {
+      getSettings(); 
+      // After getSettings, we should reset our timing
+      lastSampleTime = micros();
+    } else {
+      // It's just a heartbeat byte or junk, clear it so we don't process it again
+      Serial.read(); 
+    }
 
     if (currentState == SystemState::STOP) {
       lastSampleTime = micros();
@@ -222,6 +231,11 @@ void sendPacket() {
   {
     frame.channelData[i] = A.cycleDifferential();
   }
+
+  for (size_t i = incomingSettings.numChannels; i < MAX_CHANNELS; i++)
+  {
+    A.cycleDifferential();
+  }
   
   // 2 bytes for headers + (number of channels * 4 bytes per int32_t)
   uint16_t payloadSize = 2 + (incomingSettings.numChannels * sizeof(int32_t));
@@ -234,9 +248,4 @@ void sendPacket() {
   
   // Send the CRC (4 bytes) immediately after
   Serial.write((uint8_t*)&currentCRC, sizeof(currentCRC));
-
-  for (size_t i = incomingSettings.numChannels; i < MAX_CHANNELS; i++)
-  {
-    A.cycleDifferential();
-  }
 }
