@@ -196,6 +196,7 @@ void getSettings() {
           Serial.flush();
           
           settingsReceived = true;
+          currentState = SystemState::STREAMING;
         }
       } else {
         Serial.read(); // Discard garbage
@@ -231,32 +232,23 @@ void sendPacket() {
 
   frame.header1 = 0xAA;
   frame.header2 = 0xBB;
-
-  for (size_t i = 0; i < incomingSettings.numChannels; i++)
-  {
-    #ifndef DEBUG_MODE
-      frame.channelData[i] = A.cycleDifferential();
-    #else
-      frame.channelData[i] = random(-10, 10);
-    #endif
-  }
-
+  
   #ifndef DEBUG_MODE
-    for (size_t i = incomingSettings.numChannels; i < MAX_CHANNELS; i++)
-    {
-      A.cycleDifferential();
-    }
+    frame.ch0 = A.cycleDifferential();
+    frame.ch1 = A.cycleDifferential();
+    frame.ch2 = A.cycleDifferential();
+
+    A.cycleDifferential(); // we don't need the last channel but we need to call it to update the MUX for the next cycle
+  #else
+    frame.ch0 = random(-10, 10); //A.cycleDifferential();
+    frame.ch1 = random(-10, 10); //A.cycleDifferential();
+    frame.ch2 = random(-10, 10); //A.cycleDifferential();
   #endif
-  
-  // 2 bytes for headers + (number of channels * 4 bytes per int32_t)
-  uint16_t payloadSize = 2 + (incomingSettings.numChannels * sizeof(int32_t));
 
-  // Calculate CRC only on the data being sent
-  uint32_t currentCRC = calcCRC32((uint8_t *)&frame, payloadSize);
+  // Calculate Checksum
+  // CRC-32 (ISO 3309) over header + channel data (all bytes before the crc field).
+  frame.crc = calcCRC32((uint8_t *)&frame, ADC_PACKET_PAYLOAD_LEN);
 
-  // Send headers and active channels
-  Serial.write((uint8_t*)&frame, payloadSize);
-  
-  // Send the CRC (4 bytes) immediately after
-  Serial.write((uint8_t*)&currentCRC, sizeof(currentCRC));
+  Serial.write((uint8_t*)&frame, sizeof(frame));  // Send the entire frame as binary data
+  Serial.flush(); // Ensure all data is sent before proceeding
 }
