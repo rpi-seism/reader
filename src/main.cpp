@@ -68,6 +68,7 @@
 #define TIMEOUT_DURATION 1000 // in milliseconds
 #define ADC_PACKET_PAYLOAD_LEN  (sizeof(ADC_Packet) - sizeof(uint32_t))
 #define WRITE_TIMEOUT 500 // ms to detect a "stuck" serial port
+#define DEBUG_MODE
 
 unsigned long lastSampleTime = 0;
 unsigned long interval = 1000000 / SAMPLING_SPEED; // 1_000_000us / 100Hz = 10ms
@@ -218,7 +219,9 @@ void validateSettings(SettingsPacket *s){
     s->ADCDataRate = 11; // Default to index 14 (2000SPS)
   }
 
-  initADC(s);
+  #ifndef DEBUG_MODE
+    initADC(s);
+  #endif
 }
 
 void sendPacket() {
@@ -231,13 +234,19 @@ void sendPacket() {
 
   for (size_t i = 0; i < incomingSettings.numChannels; i++)
   {
-    frame.channelData[i] = A.cycleDifferential();
+    #ifndef DEBUG_MODE
+      frame.channelData[i] = A.cycleDifferential();
+    #else
+      frame.channelData[i] = random(-10, 10);
+    #endif
   }
 
-  for (size_t i = incomingSettings.numChannels; i < MAX_CHANNELS; i++)
-  {
-    A.cycleDifferential();
-  }
+  #ifndef DEBUG_MODE
+    for (size_t i = incomingSettings.numChannels; i < MAX_CHANNELS; i++)
+    {
+      A.cycleDifferential();
+    }
+  #endif
   
   // 2 bytes for headers + (number of channels * 4 bytes per int32_t)
   uint16_t payloadSize = 2 + (incomingSettings.numChannels * sizeof(int32_t));
