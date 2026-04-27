@@ -67,6 +67,8 @@
 #define SAMPLING_SPEED 100  // in Hz
 #define TIMEOUT_DURATION 1000 // in milliseconds
 #define ADC_PACKET_PAYLOAD_LEN  (sizeof(ADC_Packet) - sizeof(uint32_t))
+#define WRITE_TIMEOUT 500 // ms to detect a "stuck" serial port
+// #define DEBUG_MODE
 
 unsigned long lastSampleTime = 0;
 unsigned long interval = 1000000 / SAMPLING_SPEED; // 1_000_000us / 100Hz = 10ms
@@ -74,6 +76,7 @@ unsigned long interval = 1000000 / SAMPLING_SPEED; // 1_000_000us / 100Hz = 10ms
 unsigned long lastHeartbeat = 0;
 
 SystemState currentState = SystemState::STOP;
+SettingsPacket incomingSettings;
 
 uint8_t PGASettings[7] = {
   PGA_1,
@@ -128,21 +131,31 @@ void setup() {
 }
 
 void loop() {
-  // Check for Heartbeat
+  // Check for Settings/Disconnect via Serial availability
   if (Serial.available() > 0) {
-    while(Serial.available()) Serial.read(); // Clear buffer
-    lastHeartbeat = millis();
-
-    if (currentState == SystemState::STOP) {
+    // If we see the settings header, update settings
+    if (Serial.peek() == 0xCC) {
+      getSettings();
       lastSampleTime = micros();
       currentState = SystemState::STREAMING;
+    } else {
+      // Clear unexpected bytes
+      Serial.read();
     }
   }
 
-  // Check for Timeout
-  if (millis() - lastHeartbeat > TIMEOUT_DURATION && currentState != SystemState::STOP) {
-    currentState = SystemState::STOP;
-    A.stopConversion();
+  // Handle Connection State via availableForWrite
+  // If the output buffer is full, it means the Pi isn't pulling data.ì
+  if (Serial.availableForWrite() < 32) { // Buffer is nearly full
+    static unsigned long bufferFullStartTime = 0;
+    if (bufferFullStartTime == 0) bufferFullStartTime = millis();
+
+    if (millis() - bufferFullStartTime > WRITE_TIMEOUT) {
+      if (currentState != SystemState::STOP) {
+        currentState = SystemState::STOP;
+        A.stopConversion();
+      }
+    }
   }
 
   // Sampling and Streaming
@@ -169,7 +182,6 @@ void initADC(SettingsPacket *s) {
 
 void getSettings() {
   bool settingsReceived = false;
-  SettingsPacket incomingSettings;
 
   while (!settingsReceived) {
     if (Serial.available() >= sizeof(SettingsPacket)) {
@@ -184,6 +196,7 @@ void getSettings() {
           Serial.flush();
           
           settingsReceived = true;
+          currentState = SystemState::STREAMING;
         }
       } else {
         Serial.read(); // Discard garbage
@@ -207,7 +220,9 @@ void validateSettings(SettingsPacket *s){
     s->ADCDataRate = 11; // Default to index 14 (2000SPS)
   }
 
-  initADC(s);
+  #ifndef DEBUG_MODE
+    initADC(s);
+  #endif
 }
 
 void sendPacket() {
@@ -218,10 +233,17 @@ void sendPacket() {
   frame.header1 = 0xAA;
   frame.header2 = 0xBB;
   
-  frame.ch0 = A.cycleDifferential();
-  frame.ch1 = A.cycleDifferential();
-  frame.ch2 = A.cycleDifferential();
-  A.cycleDifferential(); // we don't need the last channel but we need to call it to update the MUX for the next cycle
+  #ifndef DEBUG_MODE
+    frame.ch0 = A.cycleDifferential();
+    frame.ch1 = A.cycleDifferential();
+    frame.ch2 = A.cycleDifferential();
+
+    A.cycleDifferential(); // we don't need the last channel but we need to call it to update the MUX for the next cycle
+  #else
+    frame.ch0 = random(-10, 10); //A.cycleDifferential();
+    frame.ch1 = random(-10, 10); //A.cycleDifferential();
+    frame.ch2 = random(-10, 10); //A.cycleDifferential();
+  #endif
 
   // Calculate Checksum
   // CRC-32 (ISO 3309) over header + channel data (all bytes before the crc field).
