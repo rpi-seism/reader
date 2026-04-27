@@ -68,7 +68,7 @@
 #define TIMEOUT_DURATION 1000 // in milliseconds
 #define ADC_PACKET_PAYLOAD_LEN  (sizeof(ADC_Packet) - sizeof(uint32_t))
 #define WRITE_TIMEOUT 500 // ms to detect a "stuck" serial port
-#define DEBUG_MODE
+// #define DEBUG_MODE
 
 unsigned long lastSampleTime = 0;
 unsigned long interval = 1000000 / SAMPLING_SPEED; // 1_000_000us / 100Hz = 10ms
