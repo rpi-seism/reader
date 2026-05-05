@@ -193,7 +193,7 @@ void getSettings() {
           validateSettings(&incomingSettings);
           // Respond with the same structure for verification
           Serial.write((uint8_t*)&incomingSettings, sizeof(incomingSettings));
-          Serial.flush();
+          //Serial.flush();
           
           settingsReceived = true;
           currentState = SystemState::STREAMING;
@@ -250,5 +250,5 @@ void sendPacket() {
   frame.crc = calcCRC32((uint8_t *)&frame, ADC_PACKET_PAYLOAD_LEN);
 
   Serial.write((uint8_t*)&frame, sizeof(frame));  // Send the entire frame as binary data
-  Serial.flush(); // Ensure all data is sent before proceeding
+  //Serial.flush(); // Ensure all data is sent before proceeding
 }
