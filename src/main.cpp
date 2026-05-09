@@ -117,7 +117,7 @@ void sendPacket();
 
 
 void setup() {
-  Serial.begin(250000);  //The value does not matter if you use an MCU with native USB
+  Serial.begin(115200);  //The value does not matter if you use an MCU with native USB
 
 #if defined(ARDUINO_ARCH_RP2040)  //If RP2040 is used, we need to pass the SPI pins
   SPI.setSCK(SPI_SCK);
