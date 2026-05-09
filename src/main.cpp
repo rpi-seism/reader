@@ -77,6 +77,8 @@ unsigned long lastHeartbeat = 0;
 
 SystemState currentState = SystemState::STOP;
 SettingsPacket incomingSettings;
+static unsigned long bufferFullStartTime;
+static bool isTimerActive = false; // Separate flag for the "Zero" edge case
 
 uint8_t PGASettings[7] = {
   PGA_1,
@@ -144,18 +146,21 @@ void loop() {
     }
   }
 
-  // Handle Connection State via availableForWrite
-  // If the output buffer is full, it means the Pi isn't pulling data.ì
-  if (Serial.availableForWrite() < 32) { // Buffer is nearly full
-    static unsigned long bufferFullStartTime = 0;
-    if (bufferFullStartTime == 0) bufferFullStartTime = millis();
-
-    if (millis() - bufferFullStartTime > WRITE_TIMEOUT) {
-      if (currentState != SystemState::STOP) {
-        currentState = SystemState::STOP;
-        A.stopConversion();
+  if (Serial.availableForWrite() < 32) {
+      if (!isTimerActive) {
+          bufferFullStartTime = millis();
+          isTimerActive = true;
       }
-    }
+
+      if (millis() - bufferFullStartTime > WRITE_TIMEOUT) {
+          if (currentState != SystemState::STOP) {
+              currentState = SystemState::STOP;
+              A.stopConversion();
+          }
+      }
+  } 
+  else {
+      isTimerActive = false; // Reset the flag
   }
 
   // Sampling and Streaming
