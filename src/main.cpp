@@ -77,6 +77,8 @@ unsigned long lastHeartbeat = 0;
 
 SystemState currentState = SystemState::STOP;
 SettingsPacket incomingSettings;
+static unsigned long bufferFullStartTime;
+static bool isTimerActive = false; // Separate flag for the "Zero" edge case
 
 uint8_t PGASettings[7] = {
   PGA_1,
@@ -115,7 +117,7 @@ void sendPacket();
 
 
 void setup() {
-  Serial.begin(250000);  //The value does not matter if you use an MCU with native USB
+  Serial.begin(115200);  //The value does not matter if you use an MCU with native USB
 
 #if defined(ARDUINO_ARCH_RP2040)  //If RP2040 is used, we need to pass the SPI pins
   SPI.setSCK(SPI_SCK);
@@ -144,18 +146,21 @@ void loop() {
     }
   }
 
-  // Handle Connection State via availableForWrite
-  // If the output buffer is full, it means the Pi isn't pulling data.ì
-  if (Serial.availableForWrite() < 32) { // Buffer is nearly full
-    static unsigned long bufferFullStartTime = 0;
-    if (bufferFullStartTime == 0) bufferFullStartTime = millis();
-
-    if (millis() - bufferFullStartTime > WRITE_TIMEOUT) {
-      if (currentState != SystemState::STOP) {
-        currentState = SystemState::STOP;
-        A.stopConversion();
+  if (Serial.availableForWrite() < 32) {
+      if (!isTimerActive) {
+          bufferFullStartTime = millis();
+          isTimerActive = true;
       }
-    }
+
+      if (millis() - bufferFullStartTime > WRITE_TIMEOUT) {
+          if (currentState != SystemState::STOP) {
+              currentState = SystemState::STOP;
+              A.stopConversion();
+          }
+      }
+  } 
+  else {
+      isTimerActive = false; // Reset the flag
   }
 
   // Sampling and Streaming
@@ -193,7 +198,7 @@ void getSettings() {
           validateSettings(&incomingSettings);
           // Respond with the same structure for verification
           Serial.write((uint8_t*)&incomingSettings, sizeof(incomingSettings));
-          Serial.flush();
+          //Serial.flush();
           
           settingsReceived = true;
           currentState = SystemState::STREAMING;
@@ -250,5 +255,5 @@ void sendPacket() {
   frame.crc = calcCRC32((uint8_t *)&frame, ADC_PACKET_PAYLOAD_LEN);
 
   Serial.write((uint8_t*)&frame, sizeof(frame));  // Send the entire frame as binary data
-  Serial.flush(); // Ensure all data is sent before proceeding
+  //Serial.flush(); // Ensure all data is sent before proceeding
 }
