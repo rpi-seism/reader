@@ -1,6 +1,5 @@
 #include <Arduino.h>
 
-#include <CRC.h>
 #include <ADS1256.h>
 
 #include <struct.h>
@@ -65,8 +64,8 @@
 
 // default settings
 #define SAMPLING_SPEED 100  // in Hz
+#define SAMPLES_PER_PACKET 5
 #define TIMEOUT_DURATION 1000 // in milliseconds
-#define ADC_PACKET_PAYLOAD_LEN  (sizeof(ADC_Packet) - sizeof(uint32_t))
 #define WRITE_TIMEOUT 500 // ms to detect a "stuck" serial port
 // #define DEBUG_MODE
 
@@ -74,6 +73,11 @@ unsigned long lastSampleTime = 0;
 unsigned long interval = 1000000 / SAMPLING_SPEED; // 1_000_000us / 100Hz = 10ms
 
 unsigned long lastHeartbeat = 0;
+
+int32_t buf_ehz[SAMPLES_PER_PACKET];
+int32_t buf_ehn[SAMPLES_PER_PACKET];
+int32_t buf_ehe[SAMPLES_PER_PACKET];
+uint8_t sample_index = 0;
 
 SystemState currentState = SystemState::STOP;
 SettingsPacket incomingSettings;
@@ -114,6 +118,7 @@ void initADC(SettingsPacket *s);
 void getSettings();
 void validateSettings(SettingsPacket *s);
 void sendPacket();
+uint8_t get_checksum(int32_t* array, uint32_t size);
 
 
 void setup() {
@@ -129,7 +134,12 @@ void setup() {
   hspi.begin(14, 25, 13);  //SCK, MISO (safe), MOSI
 #endif
 
-  getSettings();
+  //getSettings();
+  validateSettings(&incomingSettings);
+  // Respond with the same structure for verification
+  
+  sample_index = 0;
+  currentState = SystemState::STREAMING;
 }
 
 void loop() {
@@ -201,6 +211,7 @@ void getSettings() {
           //Serial.flush();
           
           settingsReceived = true;
+          sample_index = 0;
           currentState = SystemState::STREAMING;
         }
       } else {
@@ -230,30 +241,60 @@ void validateSettings(SettingsPacket *s){
   #endif
 }
 
+uint8_t get_checksum(int32_t* array, uint32_t size) {
+    uint8_t checksum = 0;
+    uint8_t* bytes;
+
+    for (uint8_t i = 0; i < size; i++) {
+        bytes = (uint8_t*)&array[i];
+        for (uint8_t j = 0; j < sizeof(int32_t); j++) {
+            checksum ^= bytes[j];
+        }
+    }
+
+    return checksum;
+}
+
 void sendPacket() {
-  lastSampleTime += interval; // Schedule next sample time based on the previous one to maintain consistent intervals, even if there is some processing delay
+  lastSampleTime += interval;
 
-  ADC_Packet frame;
+  int32_t val_z, val_n, val_e;
 
-  frame.header1 = 0xAA;
-  frame.header2 = 0xBB;
-  
   #ifndef DEBUG_MODE
-    frame.ch0 = A.cycleDifferential();
-    frame.ch1 = A.cycleDifferential();
-    frame.ch2 = A.cycleDifferential();
-
-    A.cycleDifferential(); // we don't need the last channel but we need to call it to update the MUX for the next cycle
+    val_z = A.cycleDifferential();
+    val_n = A.cycleDifferential();
+    val_e = A.cycleDifferential();
+    A.cycleDifferential();
   #else
-    frame.ch0 = random(-10, 10); //A.cycleDifferential();
-    frame.ch1 = random(-10, 10); //A.cycleDifferential();
-    frame.ch2 = random(-10, 10); //A.cycleDifferential();
+    val_z = random(-10, 10);
+    val_n = random(-10, 10);
+    val_e = random(-10, 10);
   #endif
 
-  // Calculate Checksum
-  // CRC-32 (ISO 3309) over header + channel data (all bytes before the crc field).
-  frame.crc = calcCRC32((uint8_t *)&frame, ADC_PACKET_PAYLOAD_LEN);
+  buf_ehz[sample_index] = val_z;
+  buf_ehn[sample_index] = val_n;
+  buf_ehe[sample_index] = val_e;
+  sample_index++;
 
-  Serial.write((uint8_t*)&frame, sizeof(frame));  // Send the entire frame as binary data
-  //Serial.flush(); // Ensure all data is sent before proceeding
+  if (sample_index >= SAMPLES_PER_PACKET) {
+    sample_index = 0;
+
+    ADC_Packet frame;
+    frame.header1 = 0xFC;
+    frame.header2 = 0x1B;
+
+    for (uint8_t i = 0; i < SAMPLES_PER_PACKET; i++) {
+      frame.channel_z[i] = buf_ehz[i];
+      frame.channel_e[i] = buf_ehe[i];
+      frame.channel_n[i] = buf_ehn[i];
+    }
+
+    frame.checksum[0] = get_checksum(buf_ehz, SAMPLES_PER_PACKET);
+    frame.checksum[1] = get_checksum(buf_ehe, SAMPLES_PER_PACKET);
+    frame.checksum[2] = get_checksum(buf_ehn, SAMPLES_PER_PACKET);
+
+    frame.padding = 0;
+
+    Serial.write((uint8_t*)&frame, sizeof(frame));
+  }
 }
