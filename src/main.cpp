@@ -284,14 +284,14 @@ void sendPacket() {
     frame.header2 = 0x1B;
 
     for (uint8_t i = 0; i < SAMPLES_PER_PACKET; i++) {
-      frame.channel_z[i] = buf_ehz[i];
-      frame.channel_e[i] = buf_ehe[i];
       frame.channel_n[i] = buf_ehn[i];
+      frame.channel_e[i] = buf_ehe[i];
+      frame.channel_z[i] = buf_ehz[i];
     }
 
-    frame.checksum[0] = get_checksum(buf_ehz, SAMPLES_PER_PACKET);
+    frame.checksum[0] = get_checksum(buf_ehn, SAMPLES_PER_PACKET);
     frame.checksum[1] = get_checksum(buf_ehe, SAMPLES_PER_PACKET);
-    frame.checksum[2] = get_checksum(buf_ehn, SAMPLES_PER_PACKET);
+    frame.checksum[2] = get_checksum(buf_ehz, SAMPLES_PER_PACKET);
 
     frame.padding = 0;
 
